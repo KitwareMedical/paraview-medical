@@ -3,13 +3,11 @@ import Vue from 'vue';
 import { asMutation } from '@/src/utils/common';
 import { NO_WIDGET } from '@/src/constants';
 
-export default () => ({
+export default ({ widgetProvider }) => ({
   namespaced: true,
 
   state: {
     activeWidgetID: NO_WIDGET,
-    widgetList: [],
-    removeWidgetOnDeactivate: {}, // widget ID -> boolean
   },
 
   mutations: {
@@ -33,33 +31,19 @@ export default () => ({
   },
 
   actions: {
-    activateWidget({ state, commit, dispatch }, id) {
-      if (state.activeWidgetID !== NO_WIDGET) {
-        dispatch('deactivateActiveWidget');
+    focusWidget: asMutation('focusWidget'),
+    unfocusActiveWidget: asMutation('unfocusActiveWidget'),
+
+    // TODO Remove
+    async removeWidget({ state, commit }, id) {
+      if (state.activeWidgetID === id) {
+        // don't call the unfocusActiveWidget action, as removeWidget
+        // will handle
+        commit('unfocusActiveWidget');
       }
-      commit('addAndActivateWidget', id);
-    },
-
-    async deactivateActiveWidget({ state, dispatch }) {
-      dispatch('deactivateWidget', state.activeWidgetID);
-    },
-
-    deactivateWidget({ state, commit }, id) {
-      const { activeWidgetID, removeWidgetOnDeactivate } = state;
-      if (activeWidgetID !== NO_WIDGET && activeWidgetID === id) {
-        if (removeWidgetOnDeactivate[id]) {
-          commit('removeWidget', id);
-        }
-        commit('deactivateActiveWidget');
-      }
-    },
-
-    setRemoveWidgetOnDeactivate: asMutation('setRemoveWidgetOnDeactivate'),
-
-    async removeWidget({ commit, dispatch }, id) {
-      commit('removeWidget', id);
+      widgetProvider.removeWidget(id);
       // delete any associated measurement data
-      await dispatch('measurements/deleteMeasurement', id);
+      // await dispatch('measurements/deleteMeasurement', id);
     },
   },
 });
