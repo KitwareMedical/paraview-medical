@@ -417,8 +417,8 @@ export default {
     selectedTool(tool) {
       if (tool) {
         const { key, focusModule } = Tools.find((v) => v.name === tool);
-        const id = this.widgetProvider.createWidget(key);
-        this.activateWidget(id);
+        const widget = this.widgetProvider.createWidget(key);
+        this.widgetProvider.focusWidget(widget.id);
 
         if (focusModule) {
           const mod = Modules.find((m) => m.component === focusModule);
@@ -426,8 +426,8 @@ export default {
             this.selectedModule = mod;
           }
         }
-      } else if (this.activeWidgetID !== NO_WIDGET) {
-        this.deactivateActiveWidget();
+      } else {
+        this.widgetProvider.unfocus();
       }
     },
   },
@@ -546,11 +546,6 @@ export default {
     },
 
     ...mapActions(['loadFiles', 'selectBaseImage']),
-    ...mapActions('widgets', [
-      'activateWidget',
-      'deactivateActiveWidget',
-      'removeWidget',
-    ]),
     ...mapActions('visualization', ['updateScene']),
   },
 };

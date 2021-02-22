@@ -175,8 +175,13 @@ export default {
       const view = unref(viewRef);
       if (view) {
         view.setOrientationAxesVisibility(false);
-        widgetProvider.addView(view);
       }
+    });
+
+    // add/remove view from widget provider
+    watch(viewRef, (view, oldView) => {
+      widgetProvider.detachView(oldView);
+      widgetProvider.addView(view, viewType.value);
     });
 
     // setup ranges for mouse controls

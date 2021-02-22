@@ -1,7 +1,5 @@
-import { ViewTypes } from 'vtk.js/Sources/Widgets/Core/WidgetManager/Constants';
-
 import PaintWidget from '@/src/widgets/paint';
-import RulerWidget from '@/src/widgets/ruler';
+import RulerWidget from '@/src/widgets/newRuler';
 import CrosshairsWidget from '@/src/widgets/slicingCrosshairs';
 import { createContext, openContext, closeCurrentContext } from './context';
 
@@ -11,12 +9,10 @@ export const DEFAULT_NAME_LOOKUP = {
   Crosshairs: CrosshairsWidget,
 };
 
-function generateHookArgs(widget, view = null, viewType = null) {
+function generateHookArgs(widget, view = null, viewTypeMap = null) {
   const args = {
     id: widget.id,
     widgetState: widget.factory.getWidgetState(),
-    widgetFactory: widget.factory,
-    widgetInstances: widget.instances,
   };
 
   if (view) {
@@ -25,8 +21,8 @@ function generateHookArgs(widget, view = null, viewType = null) {
       args.viewWidget = widget.instances.get(view);
     }
   }
-  if (viewType) {
-    args.viewType = viewType;
+  if (viewTypeMap && viewTypeMap.has(view)) {
+    args.viewType = viewTypeMap.get(view);
   }
 
   return args;
@@ -64,6 +60,8 @@ function watchView(view, { onMouseEnter, onMouseMove, onMouseLeave }) {
     }
   });
 
+  setContainer(view.getContainer());
+
   return {
     unsubscribe() {
       modSub.unsubscribe();
@@ -73,11 +71,10 @@ function watchView(view, { onMouseEnter, onMouseMove, onMouseLeave }) {
 }
 
 function onViewEvent(type, event, view) {
-  const viewType = this.viewTypes.get(view);
   Array.from(this.widgetMap.values()).forEach((widget) => {
     if (widget.instances.has(view)) {
       widget.context.invokeHook('viewMouseEvent', {
-        ...generateHookArgs(widget, view, viewType),
+        ...generateHookArgs(widget, view, this.viewTypes),
         type,
         event,
       });
@@ -87,34 +84,30 @@ function onViewEvent(type, event, view) {
 
 function addWidgetToView(widget, view) {
   withWidgetManager(view, (wm) => {
-    const viewType = this.viewTypes.get(view);
-
     const flags = widget.context.invokeHook(
       'beforeAddToView',
-      generateHookArgs(widget, view, viewType)
+      generateHookArgs(widget, view, this.viewTypes)
     );
 
     if (flags.some((fl) => fl === false)) {
       return;
     }
 
-    const viewWidget = wm.addWidget(widget.factory, viewType);
+    const viewWidget = wm.addWidget(widget.factory, this.viewTypes);
     widget.instances.set(view, viewWidget);
 
     widget.context.invokeHook(
       'addedToView',
-      generateHookArgs(widget, view, viewType)
+      generateHookArgs(widget, view, this.viewTypes)
     );
   });
 }
 
 function removeWidgetFromView(widget, view) {
   withWidgetManager(view, (wm) => {
-    const viewType = this.viewTypes.get(view);
-
     widget.context.invokeHook(
       'beforeRemoveToView',
-      generateHookArgs(widget, view, viewType)
+      generateHookArgs(widget, view, this.viewTypes)
     );
 
     wm.removeWidget(widget.factory);
@@ -122,15 +115,28 @@ function removeWidgetFromView(widget, view) {
 
     widget.context.invokeHook(
       'removedToView',
-      generateHookArgs(widget, view, viewType)
+      generateHookArgs(widget, view, this.viewTypes)
     );
   });
 }
 
+// Merges objects together.
+// If there are overlapping keys, throw an error.
+function mergeExclusive(...objects) {
+  return objects.reduce((acc, obj) => {
+    const keys = new Set(Object.keys(acc));
+    const overlap = !!Object.keys(obj).find((okey) => keys.has(okey));
+    if (overlap) {
+      throw new Error('Cannot merge objects: keys are non-exclusive');
+    }
+    return { ...acc, ...obj };
+  }, {});
+}
+
 export default class WidgetProvider {
-  constructor(store, nameLookup = DEFAULT_NAME_LOOKUP) {
+  constructor(store, typeLookup = DEFAULT_NAME_LOOKUP) {
     this.store = store;
-    this.nameLookup = nameLookup;
+    this.typeLookup = typeLookup;
     this.widgetMap = new Map();
     this.nextID = 1;
     this.views = [];
@@ -148,44 +154,54 @@ export default class WidgetProvider {
     );
   }
 
-  createWidget(name, options) {
-    if (name in this.nameLookup) {
+  createWidget(type, options) {
+    if (type in this.typeLookup) {
       const id = this.nextID;
-      const WidgetConstructor = this.nameLookup[name];
+      const WidgetConstructor = this.typeLookup[type];
+      const widgetInstances = new Map(); // view -> viewWidget (i.e. instance)
 
       const context = createContext();
       openContext(context);
-      const { factory, serialize } = WidgetConstructor.setup({
+
+      const { factory, serialize, ...other } = WidgetConstructor.setup({
         store: this.store,
         initialState: options?.initialState,
+        viewTypeMap: this.viewTypes,
+        widgetInstances,
         // setTimeout will allow these functions to trigger
         // post-creation.
         deleteSelf: () => setTimeout(() => this.deleteWidget(id)),
         unfocusSelf: () => setTimeout(() => this.focusWidget(id)),
         focusSelf: () => setTimeout(() => this.unfocusWidget(id)),
       });
+
       closeCurrentContext();
 
-      const widget = {
-        type: name,
+      const widget = mergeExclusive(other, {
+        type,
         id,
         factory,
         context,
-        instances: new Map(), // view -> viewWidget
+        instances: widgetInstances,
         serialize,
         subscriptions: [],
-      };
+      });
       this.widgetMap.set(id, widget);
 
       const widgetState = factory.getWidgetState();
 
       widget.subscriptions.push(
-        widgetState.onModified(() => {
-          widget.context.invokeHook('widgetStateChanged', {
-            widgetState,
-            widgetFactory: factory,
-          });
-        })
+        widgetState.onModified(() =>
+          // handle condition where state is modified inside a hook
+          setTimeout(() => {
+            if (widget.context) {
+              widget.context.invokeHook('widgetStateChanged', {
+                widgetState,
+                widgetFactory: factory,
+              });
+            }
+          })
+        )
       );
 
       this.addWidgetToViews(id);
@@ -193,7 +209,7 @@ export default class WidgetProvider {
       this.nextID += 1;
       return widget;
     }
-    throw new Error(`Could not find widget ${name}`);
+    throw new Error(`Could not find widget ${type}`);
   }
 
   addWidgetToViews(id) {
@@ -217,12 +233,11 @@ export default class WidgetProvider {
     if (widget) {
       this.views.forEach((view) =>
         withWidgetManager(view, (wm) => {
-          const viewType = this.viewTypes.get(view);
           const viewWidget = widget.instances.get(view);
 
           const flags = widget.context.invokeHook(
             'beforeFocus',
-            generateHookArgs(widget, view, viewType)
+            generateHookArgs(widget, view, this.viewTypes)
           );
 
           if (flags.some((fl) => fl === false)) {
@@ -233,12 +248,12 @@ export default class WidgetProvider {
 
           widget.context.invokeHook(
             'focused',
-            generateHookArgs(widget, view, viewType)
+            generateHookArgs(widget, view, this.viewTypes)
           );
         })
       );
 
-      this.store.dispatch('focusWidget', id);
+      this.store.dispatch('widgets/focusWidget', id);
     }
   }
 
@@ -246,15 +261,13 @@ export default class WidgetProvider {
     this.views.forEach((view) =>
       withWidgetManager(view, (wm) => {
         wm.releaseFocus();
-        const viewType = this.viewTypes.get(view);
-
         const it = this.widgetMap.values();
         let { value: widget, done } = it.next();
         while (!done) {
           if (widget.instances.has(view)) {
             widget.context.invokeHook(
               'unFocused',
-              generateHookArgs(widget, view, viewType)
+              generateHookArgs(widget, view, this.viewTypes)
             );
           }
           ({ value: widget, done } = it.next());
@@ -262,26 +275,27 @@ export default class WidgetProvider {
       })
     );
 
-    this.store.dispatch('unfocusActiveWidget');
+    this.store.dispatch('widgets/unfocusActiveWidget');
   }
 
   deleteWidget(id) {
     const widget = this.widgetMap.get(id);
     if (widget) {
-      this.removeWidgetFromViews(id);
-      widget.context.invokeHook('beforeDelete');
       while (widget.subscriptions.length) {
         widget.subscriptions.pop().unsubscribe();
       }
-      widget.context = null;
-      widget.factory = null;
-      widget.instances = null;
+
+      this.removeWidgetFromViews(id);
+      widget.context.invokeHook('beforeDelete');
       this.widgetMap.delete(id);
       widget.context.invokeHook('deleted');
+      widget.instances = null;
+      widget.factory = null;
+      widget.context = null;
     }
   }
 
-  addView(view, viewType = ViewTypes.DEFAULT) {
+  addView(view, viewType) {
     if (this.views.includes(view)) {
       return;
     }

@@ -7,10 +7,17 @@ export default ({ widgetProvider }) => ({
   namespaced: true,
 
   state: {
-    activeWidgetID: NO_WIDGET,
+    focusedWidget: NO_WIDGET,
   },
 
   mutations: {
+    focusWidget(state, id) {
+      state.focusedWidget = id;
+    },
+    unfocusActiveWidget(state) {
+      state.focusedWidget = NO_WIDGET;
+    },
+
     addAndActivateWidget(state, id) {
       state.widgetList.push(id);
       state.activeWidgetID = id;

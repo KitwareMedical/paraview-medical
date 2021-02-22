@@ -6,16 +6,16 @@ export function createContext() {
     hooks: {},
 
     invokeHook: (hookName, ...args) => {
-      if (!(hookName in context.hooks)) {
-        throw new Error(`Cannot invoke nonexistent hook ${hookName}`);
+      if (hookName in context.hooks) {
+        if (context.insideHook) {
+          throw new Error('Cannot invoke a hook inside another hook');
+        }
+        context.insideHook = true;
+        const ret = context.hooks[hookName].map((fn) => fn(...args));
+        context.insideHook = false;
+        return ret;
       }
-      if (context.insideHook) {
-        throw new Error('Cannot invoke a hook inside another hook');
-      }
-      context.insideHook = true;
-      const ret = context.hooks[hookName].map((fn) => fn(...args));
-      context.insideHook = false;
-      return ret;
+      return [];
     },
   };
 
@@ -61,9 +61,7 @@ function createHook(name) {
  * The hook function receives the following arguments:
  * - view (vtkViewProxy): the associated view
  * - viewType: the view type
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState: the widget state
- * - widgetFactory: the widget factory
  *
  *
  * @param {Function} hookFunc
@@ -77,9 +75,7 @@ export const onBeforeAddToView = createHook('beforeAddToView');
  * - viewWidget: the corresponding view widget
  * - view (vtkViewProxy): the associated view
  * - viewType: the view type
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState: the widget state
- * - widgetFactory: the widget factory
  *
  * @param {Function} hookFunc
  *
@@ -93,9 +89,7 @@ export const onAddedToView = createHook('addedToView');
  * - view (vtkViewProxy): the associated view
  * - viewType: the view type
  * - viewWidget: the view widget
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState: the widget state
- * - widgetFactory: the widget factory
  *
  * @param {Function} hookFunc
  */
@@ -107,9 +101,7 @@ export const onBeforeRemoveFromView = createHook('beforeRemoveFromView');
  * The hook function receives the following arguments:
  * - view (vtkViewProxy): the associated view
  * - viewType: the view type
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState: the widget state
- * - widgetFactory: the widget factory
  *
  * @param {Function} hookFunc
  */
@@ -125,9 +117,7 @@ export const onRemovedFromView = createHook('removedFromView');
  * - viewWidget
  * - view
  * - viewType
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState
- * - widgetFactory
  */
 export const onBeforeFocus = createHook('beforeFocus');
 
@@ -137,9 +127,7 @@ export const onBeforeFocus = createHook('beforeFocus');
  * Hook function args:
  * - view
  * - viewType
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState
- * - widgetFactory
  */
 export const onFocus = createHook('focused');
 
@@ -150,16 +138,13 @@ export const onFocus = createHook('focused');
  * - viewWidget
  * - view
  * - viewType
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState
- * - widgetFactory
  */
 export const onUnFocus = createHook('unFocused');
 
 /**
  * Called before a widget is deleted.
  * - widgetState
- * - widgetFactory
  */
 export const onBeforeDelete = createHook('beforeDelete');
 
@@ -176,9 +161,7 @@ export const onDeleted = createHook('deleted');
  * - event (Event): the event obj
  * - view (vtkViewProxy): the associated view
  * - viewWidget: the widget for the current view
- * - widgetInstances: map of all other view/viewWidget instances
  * - widgetState: the widget state
- * - widgetFactory: the widget factory
  *
  * @param {Function} hookFunc
  */
@@ -189,7 +172,6 @@ export const onViewMouseEvent = createHook('viewMouseEvent');
  *
  * The hook function receives the following arguments:
  * - widgetState: the widget state
- * - widgetFactory: the widget factory
  *
  * @param {Function} hookFunc
  */

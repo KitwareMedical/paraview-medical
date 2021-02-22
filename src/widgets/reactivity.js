@@ -23,11 +23,12 @@ export const observe = (source, callback, options = {}) => {
   }
 
   let runner = null;
+  let oldValue = getter();
 
   const scheduler = () => {
-    if (!runner.active) {
-      callback(runner());
-    }
+    const value = runner();
+    callback(value, oldValue);
+    oldValue = value;
   };
 
   runner = effect(getter, {
@@ -37,6 +38,8 @@ export const observe = (source, callback, options = {}) => {
 
   if (options?.immediate) {
     scheduler();
+  } else {
+    oldValue = runner();
   }
 
   const stopObserving = () => {
